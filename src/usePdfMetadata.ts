@@ -19,29 +19,33 @@ export const usePdfMetadata = () => {
       const arrayBuffer = await file.arrayBuffer();
       const pdfDoc = await PDFDocument.load(arrayBuffer);
 
-      const info: PdfMetadata = {
-        title: pdfDoc.getTitle() || "N/A",
-        author: pdfDoc.getAuthor() || "N/A",
-        subject: pdfDoc.getSubject() || "N/A",
-        keywords: pdfDoc.getKeywords() || "N/A",
-        creator: pdfDoc.getCreator() || "N/A",
-        producer: pdfDoc.getProducer() || "N/A",
-        creationDate: pdfDoc.getCreationDate()?.toISOString() || "N/A",
-        modificationDate: pdfDoc.getModificationDate()?.toISOString() || "N/A",
-      };
-
       // Leer Metadata XMP
+      const xmpJson: PdfMetadata = {};
       const metadataRef = pdfDoc.catalog.get(PDFName.of("Metadata"));
       if (metadataRef) {
         const metadataStream = pdfDoc.context.lookup(metadataRef) as PDFRawStream;
         const metadataBytes = metadataStream?.getContents();
         if (metadataBytes) {
           const xmpString = new TextDecoder().decode(metadataBytes);
-          info["XMP_RAW"] = xmpString; // XML completo, incluye MSIP_Target y otros campos
+
+          // Parse XML XMP a JSON
+          const parser = new DOMParser();
+          const xmlDoc = parser.parseFromString(xmpString, "application/xml");
+
+          // Extraer solo campos MSIP_*
+          const allElements = xmlDoc.getElementsByTagName("*");
+          for (let i = 0; i < allElements.length; i++) {
+            const el = allElements[i];
+            const tagName = el.tagName;
+            const textContent = el.textContent?.trim() || "";
+            if (tagName.startsWith("MSIP_")) {
+              xmpJson[tagName] = textContent;
+            }
+          }
         }
       }
 
-      setMetadata(info);
+      setMetadata(xmpJson);
     } catch (err) {
       console.error("Error reading PDF metadata:", err);
       setError("Error reading PDF metadata");
