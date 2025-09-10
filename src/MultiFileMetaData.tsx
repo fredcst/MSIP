@@ -1,76 +1,102 @@
 import React, { useState } from "react";
-import { usePdfMetadata, type PdfMetadata } from "./usePdfMetadata";
-import { useDocxCustomMetadata, type CustomMetadata } from "./useDocxCustomMetadata";
+import { usePdfMetadata } from "./usePdfMetadata";
+import { useDocxMetadata, type CustomMetadata } from "./useDocxMetadata";
 
 interface Attachment {
   file: File;
-  metadata: PdfMetadata | CustomMetadata;
+  metadata: Record<string, string>;
 }
 
-const MultiFileMetadata: React.FC = () => {
-  const { readPdfMetadata } = usePdfMetadata();
+const forbiddenKeys = ["MIP_sdfsdf", "MIP_asdsd"];
+
+const FileUploader: React.FC = () => {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [currentFile, setCurrentFile] = useState<File | null>(null);
 
-  // Hook llamado en el nivel superior del componente
-  const handleDocx = useDocxCustomMetadata((metadata) => {
+  // PDF hook
+  const { readPdfMetadata } = usePdfMetadata();
+
+  // DOCX hook
+  const handleDocx = useDocxMetadata((metadata: CustomMetadata | null) => {
     if (!metadata || !currentFile) return;
-    setAttachments(prev => [...prev, { file: currentFile, metadata }]);
-    console.log("DOCX metadata:", metadata);
-    setCurrentFile(null);
+
+    const forbidden = Object.keys(metadata).some((key) =>
+      forbiddenKeys.some((fk) => key.includes(fk))
+    );
+
+    if (forbidden) {
+      alert(`El archivo "${currentFile.name}" contiene keys prohibidas y no se puede añadir.`);
+      return;
+    }
+
+    // Añadir attachment
+    const typedMetadata: Record<string, string> = {};
+    Object.entries(metadata).forEach(([k, v]) => {
+      if (v !== undefined) typedMetadata[k] = v;
+    });
+
+    setAttachments((prev: Attachment[]) => [
+      ...prev,
+      { file: currentFile, metadata: typedMetadata },
+    ]);
+
+    console.log("Metadata DOCX:", typedMetadata);
   });
 
-  const handleFilesChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
+  const handleChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
     if (!files) return;
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const ext = file.name.split(".").pop()?.toLowerCase();
+      setCurrentFile(file);
 
-      try {
-        if (ext === "pdf") {
-          const metadataJson = await readPdfMetadata(file);
+      if (file.name.toLowerCase().endsWith(".docx")) {
+        handleDocx(file);
+      } else if (file.name.toLowerCase().endsWith(".pdf")) {
+        try {
+          const metadataJson: Record<string, string> | null = await readPdfMetadata(file);
           if (!metadataJson) continue;
-          setAttachments(prev => [...prev, { file, metadata: metadataJson }]);
-          console.log("PDF metadata:", metadataJson);
 
-        } else if (ext === "docx") {
-          // Guardamos el archivo temporal y llamamos al hook
-          setCurrentFile(file);
-          await handleDocx(file);
+          const forbidden = Object.keys(metadataJson).some((key) =>
+            forbiddenKeys.some((fk) => key.includes(fk))
+          );
 
-        } else {
-          console.warn("Formato no soportado:", file.name);
+          if (forbidden) {
+            alert(`El archivo "${file.name}" contiene keys prohibidas y no se puede añadir.`);
+            continue;
+          }
+
+          setAttachments((prev: Attachment[]) => [
+            ...prev,
+            { file, metadata: metadataJson },
+          ]);
+
+          console.log("Metadata PDF:", metadataJson);
+        } catch (err) {
+          console.error("Error leyendo PDF:", file.name, err);
         }
-      } catch (err) {
-        console.error(`Error procesando ${file.name}:`, err);
+      } else {
+        alert(`Archivo "${file.name}" no soportado`);
       }
     }
+
+    // Reset input
+    e.target.value = "";
   };
 
   return (
     <div>
-      <h2>Multi-file Metadata Reader (PDF + DOCX)</h2>
-      <input type="file" accept=".pdf,.docx" multiple onChange={handleFilesChange} />
-
-      {attachments.length > 0 && (
-        <div style={{ marginTop: 20 }}>
-          <h3>Processed Attachments:</h3>
-          <ul>
-            {attachments.map((att, idx) => (
-              <li key={idx}>
-                <strong>{att.file.name}</strong>
-                <pre style={{ whiteSpace: "pre-wrap" }}>
-                  {JSON.stringify(att.metadata, null, 2)}
-                </pre>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <input
+        type="file"
+        accept=".pdf,.docx"
+        multiple
+        onChange={handleChange}
+      />
+      <h3>Archivos cargados:</h3>
+      <pre>{JSON.stringify(attachments, null, 2)}</pre>
     </div>
   );
 };
 
-export default MultiFileMetadata;
+export default FileUploader;
