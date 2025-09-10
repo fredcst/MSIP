@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { usePdfMetadata } from "./usePdfMetadata";
-import type { PdfMetadata } from "./usePdfMetadata";
+import { usePdfMetadata } from "../usePdfMetadata";
+import type { PdfMetadata } from "../usePdfMetadata";
 
 interface Attachment {
   file: File;
