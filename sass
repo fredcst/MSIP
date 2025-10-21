@@ -1,68 +1,284 @@
-sendMessage: async (message: Message) => {
-  const { selectedConversationId, createConversation, fetchStream, setResponseChunks } = get();
+import { create } from "zustand";
+import { api } from "../services/axiosClient";
+import { Conversation, Message } from "../interfaces";
+import i18n from "../i18n";
 
-  let convId = selectedConversationId;
+/* Types */
+interface ChatStore {
+  conversations: Conversation[];
+  messagesMap: Record<number, Message[]>;
+  selectedConversationId: number | null;
+  loading: boolean;
+  sending: boolean;
+  streaming: boolean;
+  responseChunks: string[];
 
-  // 🔧 Si no hay conversación seleccionada, crea una
-  if (!convId) {
-    const newConversation = await createConversation();
-    if (!newConversation) {
-      console.error("Failed to create a new conversation");
-      return;
+  // actions
+  setSelectedConversationId: (id: number | null) => void;
+  fetchConversations: () => Promise<void>;
+  fetchMessages: (conversationId: number) => Promise<void>;
+  sendMessage: (message: Omit<Message, "id" | "conversationId" | "output">) => Promise<void>;
+  fetchStream: (
+    message: Message,
+    convId: number,
+    onOutputUpdate: (newOutput: string) => void
+  ) => Promise<string>;
+  setResponseChunks: (chunks: string[]) => void;
+  createConversation: () => Promise<Conversation | undefined>;
+  deleteConversation: (conversationId: number) => Promise<void>;
+
+  // getter
+  messages: (conversationId?: number | null) => Message[];
+}
+
+export const useChatStore = create<ChatStore>((set, get) => ({
+  conversations: [],
+  messagesMap: {},
+  selectedConversationId: null,
+  loading: false,
+  sending: false,
+  streaming: false,
+  responseChunks: [],
+
+  setResponseChunks: (chunks) => set({ responseChunks: chunks }),
+  setSelectedConversationId: (id) => set({ selectedConversationId: id }),
+
+  // fetch conversations
+  fetchConversations: async () => {
+    try {
+      set({ loading: true });
+      const { data } = await api.get<Conversation[]>("/conversations");
+      set({ conversations: data });
+    } catch (error) {
+      console.error("Error fetching conversations:", error);
+    } finally {
+      set({ loading: false });
     }
-    convId = newConversation.id;
-    // ⚠️ No dependas del estado aún, úsalo directamente
-    set({ selectedConversationId: convId });
-  }
+  },
 
-  // 1️⃣ Agrega el mensaje optimista
-  set((state) => ({
-    sending: true,
-    messagesMap: {
-      ...state.messagesMap,
-      [convId!]: [...(state.messagesMap[convId!] || []), message],
-    },
-  }));
+  deleteConversation: async (conversationId) => {
+    try {
+      set({ loading: true });
+      await api.delete(`/conversations/delete/${conversationId}`);
+      set((state) => ({
+        conversations: state.conversations.filter((c) => c.id !== conversationId),
+      }));
+      // optional: remove messagesMap entry
+      set((state) => {
+        const copy = { ...state.messagesMap };
+        delete copy[conversationId];
+        return { messagesMap: copy };
+      });
+    } catch (error) {
+      console.error("Error deleting a conversation", error);
+    } finally {
+      set({ loading: false });
+    }
+  },
 
-  // 2️⃣ Stream de salida
-  const onOutputUpdate = (newOutput: string) => {
-    message.output += newOutput;
-  };
+  fetchMessages: async (conversationId) => {
+    try {
+      set({ loading: true });
+      const { data } = await api.get<Message[]>(`/conversations/${conversationId}/messages`);
+      set((state) => ({ messagesMap: { ...state.messagesMap, [conversationId]: data } }));
+    } catch (error) {
+      console.error("Error fetching messages:", error);
+    } finally {
+      set({ loading: false });
+    }
+  },
 
-  const fullRequest = await fetchStream(message, onOutputUpdate);
+  createConversation: async () => {
+    try {
+      set({ loading: true });
+      const { data } = await api.post<Conversation>("/conversations/new");
+      set((state) => ({ conversations: [...state.conversations, data] }));
+      // ensure messagesMap has an array for new conversation
+      set((state) => ({ messagesMap: { ...state.messagesMap, [data.id]: [] } }));
+      return data;
+    } catch (error) {
+      console.error("Error creating a new conversation", error);
+    } finally {
+      set({ loading: false });
+    }
+  },
 
-  // 3️⃣ Procesamiento del resultado
-  const obj = JSON.parse(fullRequest.trim().split("In").pop() || "{}");
-  const { suggestions = [], title = '', source = null, usage, model } = obj;
-  const lines = fullRequest.trim().split("In");
-  const output = lines
-    .map((line) => JSON.parse(line).token)
-    .filter((token) => token !== "[END]")
-    .join("");
+  // fetchStream: streams tokens and calls onOutputUpdate for each token
+  fetchStream: async (message, convId, onOutputUpdate) => {
+    const formData = new FormData();
+    formData.append("conversationId", String(convId));
+    formData.append("input", message.input ?? "");
+    formData.append("entity", message.entity ?? "");
+    formData.append("baseConnaissance", (message as any).baseConnaissance ?? "");
+    formData.append("creativity", (message as any).creativity ?? "");
+    formData.append("conversationMode", (message as any).conversationMode ?? "");
+    formData.append("lang", String(i18n.language));
+    // Append attachments if you have them - ensure they exist
+    // if (message.attachments) { formData.append("attachments", message.attachments); }
 
-  message.output = output;
-  message.conversationId = convId;
-  message.knowledge = source ? (
-    source.rag && source.attachments ? "PJ, RAG" :
-    source.rag ? "RAG" :
-    source.attachments ? "PJ" : "general"
-  ) : "general";
+    try {
+      const res = await fetch("/api/v2/fetch_message", { method: "POST", body: formData });
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let allRequest = "";
+      set({ streaming: true });
 
-  try {
-    const fullMessage = await api.post<Message>("/save-message", message);
-    // 🔄 Actualiza el mensaje guardado
+      while (true) {
+        const { done, value } = await reader!.read();
+        if (done) break;
+        const chunkText = decoder.decode(value, { stream: true });
+        buffer += chunkText;
+        allRequest += chunkText;
+
+        let newlineIndex;
+        while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+          const jsonPart = buffer.slice(0, newlineIndex + 1);
+          buffer = buffer.slice(newlineIndex + 1);
+          try {
+            const jsonData = JSON.parse(jsonPart);
+            // If token is not end token, propagate it
+            if (jsonData.token && jsonData.token !== "[END]") {
+              // keep responseChunks for debug / UI if you want
+              set((state) => ({ responseChunks: [...state.responseChunks, jsonData.token] }));
+              onOutputUpdate(jsonData.token);
+
+              // --- IMPORTANT: update the message in messagesMap incrementally ---
+              set((state) => {
+                const msgs = state.messagesMap[convId] || [];
+                // find last message with temporary id or same local id
+                const idx = msgs.findIndex((m) => m._temp === true);
+                if (idx === -1) return {}; // nothing to update yet
+                const updatedMsg = { ...msgs[idx], output: (msgs[idx].output || "") + jsonData.token };
+                const newArr = [...msgs];
+                newArr[idx] = updatedMsg;
+                return { messagesMap: { ...state.messagesMap, [convId]: newArr } };
+              });
+            }
+          } catch (err: any) {
+            console.error("Error parsing stream chunk:", err?.message);
+            // ignore parse errors for now
+          }
+        }
+      }
+
+      return allRequest;
+    } catch (error) {
+      console.error("Error in response stream", error);
+      throw error;
+    } finally {
+      set({ streaming: false });
+    }
+  },
+
+  sendMessage: async (rawMessage) => {
+    const { selectedConversationId, createConversation, fetchStream, setResponseChunks } = get();
+    let convId = selectedConversationId;
+
+    // --- ensure we have a conversation id immediately (use direct returned conversation) ---
+    if (!convId) {
+      const newConv = await createConversation();
+      if (!newConv) {
+        console.error("Failed to create a new conversation");
+        return;
+      }
+      convId = newConv.id;
+      set({ selectedConversationId: convId });
+    }
+
+    // create a temp message object (optimistic). Use a temp id and mark as temporary
+    const tempId = -Date.now(); // negative temp id
+    const optimisticMessage: Message & { _temp?: boolean } = {
+      id: tempId as any,
+      conversationId: convId,
+      input: rawMessage.input,
+      output: "",
+      createdAt: new Date().toISOString(),
+      // copy any other fields from rawMessage if present
+      ...rawMessage,
+      _temp: true,
+    };
+
+    // 1) Insert optimistic message
     set((state) => ({
+      sending: true,
       messagesMap: {
         ...state.messagesMap,
-        [convId!]: state.messagesMap[convId!].map((msg) =>
-          msg === message ? fullMessage : msg
-        ),
+        [convId!]: [...(state.messagesMap[convId!] || []), optimisticMessage],
       },
     }));
-  } catch (error) {
-    console.error("Error updating message:", error);
-  } finally {
-    setResponseChunks([]);
-    set({ sending: false });
-  }
-},
+
+    // 2) Prepare onOutputUpdate that updates via set (no direct mutation)
+    const onOutputUpdate = (chunk: string) => {
+      // handled inside fetchStream to keep store updates co-located; keep this for backward compatibility
+    };
+
+    try {
+      // stream and update messages incrementally inside fetchStream
+      const fullRequest = await fetchStream(optimisticMessage as Message, convId!, (newToken) => {
+        // We do nothing here because fetchStream already updates the message in store.
+        // But keep for API compatibility.
+      });
+
+      // parse the full request to construct final message
+      // your server returns many JSON lines; pick last meaningful JSON
+      const lastJsonStr = fullRequest.trim().split("In").pop() || fullRequest.trim();
+      let parsed: any = {};
+      try {
+        parsed = JSON.parse(lastJsonStr);
+      } catch (err) {
+        // fallback: try to parse the fullRequest directly
+        try {
+          parsed = JSON.parse(fullRequest.trim());
+        } catch (e) {
+          console.warn("Could not parse fullRequest as JSON", e);
+        }
+      }
+
+      const { suggestions = [], title = "", source = null, usage, model } = parsed || {};
+      // reconstruct final output by filtering tokens collected in responseChunks
+      const output = get().responseChunks.join("");
+
+      // Build final message payload to save on server
+      const finalMessagePayload: Message = {
+        // server will assign real id
+        id: 0 as any,
+        conversationId: convId!,
+        input: optimisticMessage.input,
+        output: output,
+        createdAt: new Date().toISOString(),
+        // attach any parsed metadata
+        ...(parsed || {}),
+      };
+
+      // save to backend
+      const { data: fullMessage } = await api.post<Message>("/save-message", finalMessagePayload);
+
+      // Replace optimistic message with persisted message from server
+      set((state) => {
+        const msgs = state.messagesMap[convId!] || [];
+        const newMessages = msgs.map((m) => (m._temp ? fullMessage : m));
+        return { messagesMap: { ...state.messagesMap, [convId!]: newMessages } };
+      });
+    } catch (error) {
+      console.error("Error sending message / streaming:", error);
+      // Optionally mark optimistic message as errored
+      set((state) => {
+        const msgs = state.messagesMap[convId!] || [];
+        const newMessages = msgs.map((m) =>
+          m._temp ? { ...m, error: true, output: (m.output || "") + "\n\n[ERROR]" } : m
+        );
+        return { messagesMap: { ...state.messagesMap, [convId!]: newMessages } };
+      });
+    } finally {
+      setResponseChunks([]);
+      set({ sending: false });
+    }
+  },
+
+  messages: (conversationId) => {
+    const cid = conversationId ?? get().selectedConversationId;
+    if (cid == null) return [];
+    return get().messagesMap[cid] || [];
+  },
+}));
