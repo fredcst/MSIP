@@ -1,0 +1,68 @@
+sendMessage: async (message: Message) => {
+  const { selectedConversationId, createConversation, fetchStream, setResponseChunks } = get();
+
+  let convId = selectedConversationId;
+
+  // 🔧 Si no hay conversación seleccionada, crea una
+  if (!convId) {
+    const newConversation = await createConversation();
+    if (!newConversation) {
+      console.error("Failed to create a new conversation");
+      return;
+    }
+    convId = newConversation.id;
+    // ⚠️ No dependas del estado aún, úsalo directamente
+    set({ selectedConversationId: convId });
+  }
+
+  // 1️⃣ Agrega el mensaje optimista
+  set((state) => ({
+    sending: true,
+    messagesMap: {
+      ...state.messagesMap,
+      [convId!]: [...(state.messagesMap[convId!] || []), message],
+    },
+  }));
+
+  // 2️⃣ Stream de salida
+  const onOutputUpdate = (newOutput: string) => {
+    message.output += newOutput;
+  };
+
+  const fullRequest = await fetchStream(message, onOutputUpdate);
+
+  // 3️⃣ Procesamiento del resultado
+  const obj = JSON.parse(fullRequest.trim().split("In").pop() || "{}");
+  const { suggestions = [], title = '', source = null, usage, model } = obj;
+  const lines = fullRequest.trim().split("In");
+  const output = lines
+    .map((line) => JSON.parse(line).token)
+    .filter((token) => token !== "[END]")
+    .join("");
+
+  message.output = output;
+  message.conversationId = convId;
+  message.knowledge = source ? (
+    source.rag && source.attachments ? "PJ, RAG" :
+    source.rag ? "RAG" :
+    source.attachments ? "PJ" : "general"
+  ) : "general";
+
+  try {
+    const fullMessage = await api.post<Message>("/save-message", message);
+    // 🔄 Actualiza el mensaje guardado
+    set((state) => ({
+      messagesMap: {
+        ...state.messagesMap,
+        [convId!]: state.messagesMap[convId!].map((msg) =>
+          msg === message ? fullMessage : msg
+        ),
+      },
+    }));
+  } catch (error) {
+    console.error("Error updating message:", error);
+  } finally {
+    setResponseChunks([]);
+    set({ sending: false });
+  }
+},
