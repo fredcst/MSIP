@@ -1,3 +1,66 @@
+public function print_dossier_zip(array $dossierList, $user)
+{
+    $route = sys_get_temp_dir().'/dossiers_'.time().'.zip';
+
+    $tempFiles = [];
+
+    foreach ($dossierList as $key => $dossier) {
+
+        $folderName = $this->normalizer($dossier->getIddossier());
+
+        // 1. Generar DOCX real
+        $fileContent = $this->print_dossier_for_zip($dossier, $user);
+
+        // 2. Archivo temporal único
+        $routePrint = sys_get_temp_dir().'/'.uniqid('doc_').'.docx';
+
+        file_put_contents($routePrint, $fileContent);
+
+        // 3. Agregar DOCX al ZIP
+        $tempFiles[] = [
+            PCLZIP_ATT_FILE_NAME => $routePrint,
+
+            PCLZIP_ATT_FILE_NEW_FULL_NAME =>
+                $folderName.'/dossier.docx'
+        ];
+
+        // 4. Adjuntos → TAMBIÉN con PclZip
+        if (!empty($dossier->getFichiersJoint())) {
+
+            foreach ($dossier->getFichiersJoint() as $pj) {
+
+                $pjPath = $pj->getRealPath();
+                $pjName = $this->normalizer($pj->getOriginalFilename());
+
+                $tempFiles[] = [
+                    PCLZIP_ATT_FILE_NAME => $pjPath,
+
+                    PCLZIP_ATT_FILE_NEW_FULL_NAME =>
+                        $folderName.'/'.$pjName
+                ];
+            }
+        }
+    }
+
+    // CREAR ZIP
+    $zip = new \PclZip($route);
+    $zip->create($tempFiles);
+
+    // RESPUESTA
+    $data = file_get_contents($route);
+
+    $response = new \Symfony\Component\HttpFoundation\Response($data);
+    $response->headers->set('Content-Type', 'application/zip');
+    $response->headers->set(
+        'Content-Disposition',
+        'attachment; filename="dossiers.zip"'
+    );
+
+    return $response;
+}
+
+
+
 foreach ($dossierList as $dossier) {
 
     $folderName = $this->normalizar($dossier->getTitre());
