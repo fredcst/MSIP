@@ -1,3 +1,39 @@
+
+public function print_dossier_for_zip(FiDossier $dossier, $user)
+{
+    $template = TemplateManagement::DOSSIER_PATH;
+
+    $this->tbs->LoadTemplate($template, OPENTBS_ALREADY_XML);
+    $this->tbs->PlugIn(OPENTBS_DELETE_COMMENTS);
+
+    $print = new printclass();
+
+    $blockDossier = $this->getDossierData($dossier, $user);
+
+    $this->tbs->MergeBlock('d', array($blockDossier));
+
+    if ($this->tbs->Plugin(OPENTBS_FILEEXISTS, 'word/header1.xml')) {
+        $this->tbs->Plugin(OPENTBS_SELECT_HEADER);
+
+        foreach ($blockDossier as $field => $val) {
+            $this->tbs->MergeField($field, $val);
+        }
+    }
+
+    // 🔥 CLAVE:
+    $tempDocx = tempnam(sys_get_temp_dir(), "DOC");
+
+    // Guardar DOCX COMPLETO
+    $this->tbs->Show(OPENTBS_FILE, $tempDocx);
+
+    // Leer binario REAL
+    $content = file_get_contents($tempDocx);
+
+    unlink($tempDocx);
+
+    return $content;
+}
+
 public function print_dossier_for_zip(FiDossier $dossier, $user)
 {
     // 1. Preparar como original
