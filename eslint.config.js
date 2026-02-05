@@ -1,3 +1,45 @@
+public function print_dossier_for_zip(FiDossier $dossier, $user)
+{
+    // 1. Preparar como original
+    $template = TemplateManagement::DOSSIER_PATH;
+
+    $this->tbs->LoadTemplate($template, OPENTBS_ALREADY_XML);
+    $this->tbs->PlugIn(OPENTBS_DELETE_COMMENTS);
+
+    $print = new printclass();
+
+    $blockDossier = $this->getDossierData($dossier, $user);
+
+    $dataToMerge = array($blockDossier);
+
+    $this->tbs->MergeBlock('d', $dataToMerge);
+
+    if ($this->tbs->Plugin(OPENTBS_FILEEXISTS, 'word/header1.xml')) {
+
+        $this->tbs->Plugin(OPENTBS_SELECT_HEADER);
+
+        foreach ($blockDossier as $field => $val) {
+            $this->tbs->MergeField($field, $val);
+        }
+    }
+
+    // 🔥 AQUÍ TU LÓGICA ORIGINAL DE BINARIO
+    $test = tempnam(sys_get_temp_dir(), "FOO");
+
+    $this->tbs->Show(OPENTBS_FILE, $test);
+
+    $zip = new clsTbsZip();
+    $zip->open($test);
+
+    $content = $zip->FileRead('word/document.xml');
+
+    $zip->close();
+
+    unlink($test);
+
+    return $content;
+}
+
 
 public function print_dossier_capture(FiDossier $dossier, $user)
 {
