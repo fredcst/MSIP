@@ -1,3 +1,42 @@
+
+public function print_dossier_for_zip(FiDossier $dossier, $user)
+{
+    // 1. Iniciar TBS
+    $this->tbs = new clsTinyButStrong();
+    $this->tbs->Plugin(TBS_INSTALL, OPENTBS_PLUGIN);
+
+    // 2. MISMA lógica que original
+    $template = TemplateManagement::DOSSIER_PATH;
+
+    $this->tbs->LoadTemplate($template, OPENTBS_ALREADY_XML);
+    $this->tbs->PlugIn(OPENTBS_DELETE_COMMENTS);
+
+    // 👉 ESTO FALTABA
+    $print = new printclass();
+
+    // 3. Obtener datos
+    $blockDossier = $this->getDossierData($dossier, $user);
+
+    $dataToMerge = array(
+        $blockDossier,
+    );
+
+    $this->tbs->MergeBlock('d', $dataToMerge);
+
+    // 👉 TAMBIÉN esto es clave para cabeceras
+    if ($this->tbs->Plugin(OPENTBS_FILEEXISTS, 'word/header1.xml')) {
+
+        $this->tbs->Plugin(OPENTBS_SELECT_HEADER);
+
+        foreach ($blockDossier as $field => $val) {
+            $this->tbs->MergeField($field, $val);
+        }
+    }
+
+    // 4. DEVOLVER DOCX COMPLETO
+    return $this->tbs->Show(OPENTBS_STRING);
+}
+
 public function print_dossier_for_zip(FiDossier $dossier, $user)
 {
     // 1. Iniciar TBS como lo hace tu app
