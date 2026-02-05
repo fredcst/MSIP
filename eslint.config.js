@@ -1,4 +1,18 @@
 
+public function print_dossier_capture(FiDossier $dossier, $user)
+{
+    // 1. Capturar salida
+    ob_start();
+
+    // 2. Llamar ORIGINAL
+    $this->print_dossier($dossier, $user);
+
+    // 3. Tomar binario
+    $content = ob_get_clean();
+
+    return $content;
+}
+
 public function print_dossier_for_zip(FiDossier $dossier, $user)
 {
     // 1. Iniciar TBS
