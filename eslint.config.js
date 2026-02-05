@@ -1,3 +1,24 @@
+foreach ($dossierList as $dossier) {
+
+    $folderName = $this->normalizar($dossier->getTitre());
+
+    // BINARIO OK
+    $fileContent = $this->print_dossier_for_zip($dossier, $user);
+
+    // 🔥 AQUÍ ESTABA EL ERROR
+    $routePrint = sys_get_temp_dir() . '/' . uniqid('tmp_') . '.docx';
+
+    file_put_contents($routePrint, $fileContent);
+
+    $tempFiles[] = [
+        PCLZIP_ATT_FILE_NAME => $routePrint,
+
+        // 👇 ESTO SÍ usa folderName
+        PCLZIP_ATT_FILE_NEW_FULL_NAME =>
+            $folderName . '/dossier.docx'
+    ];
+}
+
 
 public function print_dossier_for_zip(FiDossier $dossier, $user)
 {
