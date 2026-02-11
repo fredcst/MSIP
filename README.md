@@ -1,3 +1,42 @@
+services:
+  simplesamlphp:
+    image: php:8.2-apache
+    container_name: simplesamlphp
+    ports:
+      - "8080:80"
+    volumes:
+      # Monta tu SimpleSAMLphp ya descargado/configurado
+      - ./simplesamlphp:/var/simplesamlphp:rw
+    environment:
+      APACHE_DOCUMENT_ROOT: /var/simplesamlphp/public
+    command: >
+      bash -lc "
+        a2enmod rewrite headers &&
+        sed -ri 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf /etc/apache2/apache2.conf &&
+        sed -ri 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf &&
+        apache2-foreground
+      "
+    restart: unless-stopped
+
+  # Opcional: PostgreSQL (solo si tu config de SimpleSAMLphp lo usa)
+  postgresql:
+    image: postgres:16-alpine
+    container_name: postgresql
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: simplesaml
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+
+
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
