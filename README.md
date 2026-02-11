@@ -1,3 +1,20 @@
+<VirtualHost *:80>
+  ServerName localhost
+
+  DocumentRoot /var/simplesamlphp/public
+
+  <Directory /var/simplesamlphp/public>
+    Options FollowSymLinks
+    AllowOverride All
+    Require all granted
+  </Directory>
+
+  ErrorLog /proc/self/fd/2
+  CustomLog /proc/self/fd/1 combined
+</VirtualHost>
+
+
+
 services:
   simplesamlphp:
     image: php:8.2-apache
