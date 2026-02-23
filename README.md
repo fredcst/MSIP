@@ -1,3 +1,24 @@
+let autoSelecting = false;
+
+table.on('page.dt', function () {
+  // Antes de cambiar de página, limpia todo
+  autoSelecting = true;
+  table.column(0).checkboxes.deselectAll();
+  table.rows().deselect();
+  autoSelecting = false;
+});
+
+table.on('draw.dt', function () {
+  if (autoSelecting) return;
+
+  // Selecciona SOLO los visibles
+  autoSelecting = true;
+  table.column(0).checkboxes.selectAll({ page: 'current' });
+  autoSelecting = false;
+});
+
+
+
 
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\ResponseHeaderBag;
