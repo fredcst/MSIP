@@ -4,6 +4,133 @@ use Symfony\Component\HttpFoundation\ResponseHeaderBag;
 
 public function print_dossier_zip(array $dossierList, $user)
 {
+    // Crear zip temporal en /tmp
+    $zipPath = tempnam('/tmp', 'ZIP_');
+
+    $tempFiles = [];
+
+    foreach ($dossierList as $dossier) {
+
+        $folderName = $this->normalize($dossier->getCdossier());
+
+        // Generar DOCX como string
+        $fileContent = $this->print_dossier_for_zip($dossier, $user);
+
+        // Crear DOCX temporal
+        $tmpDocx = tempnam('/tmp', 'DOC_');
+        file_put_contents($tmpDocx, $fileContent);
+
+        $tempFiles[] = [
+            PCLZIP_ATT_FILE_NAME => $tmpDocx,
+            PCLZIP_ATT_FILE_NEW_FULL_NAME => $folderName . '/IG-FI.docx',
+        ];
+
+        // Adjuntos
+        if (!empty($dossier->getFichiersJoint())) {
+
+            foreach ($dossier->getFichiersJoint() as $pj) {
+
+                $pjName = $this->normalize(substr($pj->getNomFichier(), 0, 100));
+                $blob   = $pj->getBlobFichier();
+
+                if (is_resource($blob)) {
+                    rewind($blob);
+                    $content = stream_get_contents($blob);
+                } else {
+                    $content = (string) $blob;
+                }
+
+                $tmpAttach = tempnam('/tmp', 'PJ_');
+                file_put_contents($tmpAttach, $content);
+
+                $tempFiles[] = [
+                    PCLZIP_ATT_FILE_NAME => $tmpAttach,
+                    PCLZIP_ATT_FILE_NEW_FULL_NAME => $folderName . '/' . $pjName,
+                ];
+            }
+        }
+    }
+
+    // Crear ZIP
+    $zip = new \PclZip($zipPath);
+    $result = $zip->create($tempFiles);
+
+    // 🔥 Borrar DOCX y adjuntos temporales
+    foreach ($tempFiles as $file) {
+        if (isset($file[PCLZIP_ATT_FILE_NAME]) && file_exists($file[PCLZIP_ATT_FILE_NAME])) {
+            @unlink($file[PCLZIP_ATT_FILE_NAME]);
+        }
+    }
+
+    if ($result == 0) {
+        @unlink($zipPath);
+        throw new \RuntimeException('Error creando ZIP: ' . $zip->errorInfo(true));
+    }
+
+    // Enviar ZIP y borrarlo después de descargar
+    $response = new BinaryFileResponse($zipPath);
+    $response->headers->set('Content-Type', 'application/zip');
+    $response->setContentDisposition(
+        ResponseHeaderBag::DISPOSITION_ATTACHMENT,
+        'dossiers.zip'
+    );
+
+    $response->deleteFileAfterSend(true);
+
+    return $response;
+}
+
+
+public function print_dossier_for_zip(FiDossier $dossier, $user)
+{
+    $template = TemplateManagement::DOSSIER_PATH;
+
+    $this->tbs->LoadTemplate($template, OPENTBS_ALREADY_XML);
+    $this->tbs->Plugin(OPENTBS_DELETE_COMMENTS);
+
+    $print = new printclass();
+
+    $blockDossier = $this->getDossierData($dossier, $user);
+
+    $this->tbs->MergeBlock('d', array($blockDossier));
+
+    if ($this->tbs->Plugin(OPENTBS_FILEEXISTS, 'word/header1.xml')) {
+
+        $this->tbs->Plugin(OPENTBS_SELECT_HEADER);
+
+        foreach ($blockDossier as $field => $val) {
+            $this->tbs->MergeField($field, $val);
+        }
+    }
+
+    // Crear DOCX temporal en /tmp
+    $tempDocx = tempnam('/tmp', 'DOC_');
+
+    $this->tbs->Show(OPENTBS_FILE, $tempDocx);
+
+    $content = file_get_contents($tempDocx);
+
+    @unlink($tempDocx);
+
+    return $content;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\ResponseHeaderBag;
+
+public function print_dossier_zip(array $dossierList, $user)
+{
     $workDir = realpath($this->getParameter('kernel.root_dir').'/../var') . '/dossiers_tmp';
     if (!is_dir($workDir)) {
         mkdir($workDir, 0775, true);
