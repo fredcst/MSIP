@@ -1,3 +1,138 @@
+
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\ResponseHeaderBag;
+
+public function print_dossier_zip(array $dossierList, $user)
+{
+    $workDir = realpath($this->getParameter('kernel.root_dir').'/../var') . '/dossiers_tmp';
+    if (!is_dir($workDir)) {
+        mkdir($workDir, 0775, true);
+    }
+
+    // Zip en el mismo directorio (no /tmp)
+    $zipPath = $workDir . '/dossiers_' . date('Ymd_His') . '_' . uniqid() . '.zip';
+
+    $tempFiles = [];
+
+    foreach ($dossierList as $key => $dossier) {
+
+        $folderName  = $this->normalize($dossier->getCdossier());
+
+        // Generas el docx en memoria (string)
+        $fileContent = $this->print_dossier_for_zip($dossier, $user);
+
+        // Guardas docx temporal en tu carpeta
+        $docxPath = $workDir . '/IG-FI_' . uniqid() . '.docx';
+        file_put_contents($docxPath, $fileContent);
+
+        $tempFiles[] = [
+            PCLZIP_ATT_FILE_NAME => $docxPath,
+            PCLZIP_ATT_FILE_NEW_FULL_NAME => $folderName . '/IG-FI.docx',
+        ];
+
+        // Adjuntos
+        if (!empty($dossier->getFichiersJoint())) {
+            foreach ($dossier->getFichiersJoint() as $pj) {
+                $pjName = $pj->getNomFichier();
+                $pjName = $this->normalize(substr($pjName, 0, 100));
+                $blob   = $pj->getBlobFichier();
+
+                if (is_resource($blob)) {
+                    rewind($blob);
+                    $content = stream_get_contents($blob);
+                } else {
+                    $content = (string) $blob;
+                }
+
+                $tmpAttachPath = $workDir . '/PJ_' . uniqid('', true);
+                file_put_contents($tmpAttachPath, $content);
+
+                $tempFiles[] = [
+                    PCLZIP_ATT_FILE_NAME => $tmpAttachPath,
+                    PCLZIP_ATT_FILE_NEW_FULL_NAME => $folderName . '/' . $pjName,
+                ];
+            }
+        }
+    }
+
+    // Crear el zip
+    $zip = new \PclZip($zipPath);
+    $result = $zip->create($tempFiles);
+
+    // Limpieza inmediata de intermedios (docx + adjuntos)
+    foreach ($tempFiles as $f) {
+        if (!empty($f[PCLZIP_ATT_FILE_NAME]) && is_file($f[PCLZIP_ATT_FILE_NAME])) {
+            @unlink($f[PCLZIP_ATT_FILE_NAME]);
+        }
+    }
+
+    if ($result == 0) {
+        // Si falló, borra también el zip si existe
+        if (is_file($zipPath)) {
+            @unlink($zipPath);
+        }
+        throw new \RuntimeException('Error creando ZIP: ' . $zip->errorInfo(true));
+    }
+
+    // Respuesta como archivo (stream) y borrar zip tras enviar
+    $response = new BinaryFileResponse($zipPath);
+    $response->headers->set('Content-Type', 'application/zip');
+    $response->setContentDisposition(
+        ResponseHeaderBag::DISPOSITION_ATTACHMENT,
+        'dossiers.zip'
+    );
+
+    // Esto hace que Symfony borre el zip cuando termine de enviarlo
+    $response->deleteFileAfterSend(true);
+
+    return $response;
+}
+
+
+public function print_dossier_for_zip(FiDossier $dossier, $user)
+{
+    $workDir = realpath($this->getParameter('kernel.root_dir').'/../var') . '/dossiers_tmp';
+    if (!is_dir($workDir)) {
+        mkdir($workDir, 0775, true);
+    }
+
+    $template = TemplateManagement::DOSSIER_PATH;
+
+    $this->tbs->LoadTemplate($template, OPENTBS_ALREADY_XML);
+    $this->tbs->Plugin(OPENTBS_DELETE_COMMENTS);
+
+    $print = new printclass();
+
+    $blockDossier = $this->getDossierData($dossier, $user);
+
+    $this->tbs->MergeBlock('d', array($blockDossier));
+
+    if ($this->tbs->Plugin(OPENTBS_FILEEXISTS, 'word/header1.xml')) {
+        $this->tbs->Plugin(OPENTBS_SELECT_HEADER);
+        foreach ($blockDossier as $field => $val) {
+            $this->tbs->MergeField($field, $val);
+        }
+    }
+
+    $tempDocx = tempnam($workDir, 'DOC_');
+    $this->tbs->Show(OPENTBS_FILE, $tempDocx);
+
+    $content = file_get_contents($tempDocx);
+    @unlink($tempDocx);
+
+    return $content;
+}
+
+
+$workDir = realpath($this->getParameter('kernel.root_dir').'/../var') . '/dossiers_tmp';
+if (!is_dir($workDir)) { mkdir($workDir, 0775, true); }
+
+$test = tempnam($workDir, 'FOO_');
+
+
+
+
+
 <VirtualHost *:80>
   ServerName localhost
 
