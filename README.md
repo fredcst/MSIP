@@ -1,3 +1,24 @@
+
+// Selecciona todo SOLO una vez cuando termina el primer draw
+table.one('draw.dt', function () {
+  table.column(0).checkboxes.selectAll({ page: 'current' });
+});
+
+// Al cambiar de página:
+// 1) limpias selección
+// 2) programas un selectAll para el siguiente draw (solo 1 vez)
+table.on('page.dt', function () {
+
+  table.column(0).checkboxes.deselectAll(); // limpia estado interno plugin
+  table.rows().deselect();                  // limpia select extension
+
+  table.one('draw.dt', function () {
+    table.column(0).checkboxes.selectAll({ page: 'current' });
+  });
+
+});
+
+
 let autoSelecting = false;
 
 table.on('page.dt', function () {
