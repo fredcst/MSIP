@@ -1,3 +1,49 @@
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\JsonResponse;
+
+public function print_suivi_superviseurAction(Request $request)
+{
+    $ids = $request->request->get('idDossiers', []);
+
+    if (empty($ids)) {
+        return new JsonResponse(['error' => 'Aucun dossier sélectionné'], 400);
+    }
+
+    $em   = $this->getDoctrine()->getManager();
+    $user = $this->getUser();
+
+    $data = [];
+    foreach ($ids as $id) {
+        if ($d = $em->getRepository(FiDossier::class)->find($id)) {
+            $data[] = $this->getDossierData($d, $user);
+        }
+    }
+
+    if (empty($data)) {
+        return new JsonResponse(['error' => 'Aucun dossier valide'], 400);
+    }
+
+    $this->tbs->LoadTemplate(TemplateManagement::SUIVI_SUPERVISEUR_PATH, OPENTBS_ALREADY_UTF8);
+    $this->tbs->MergeBlock('d', $data);
+
+    $content = $this->tbs->Show(OPENTBS_STRING);
+
+    $file = 'IG-FI_suivi_superviseur-'.date('d-m-Y').'.xlsx';
+
+    return new Response(
+        $content,
+        200,
+        [
+            'Content-Type'        => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="'.$file.'"',
+        ]
+    );
+}
+
+
+
+
 
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
