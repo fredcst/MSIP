@@ -1,4 +1,84 @@
 
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\ResponseHeaderBag;
+
+public function print_suivi_superviseur(Request $request): Response
+{
+    $dossier_list = $request->request->get('idDossiers', []);
+
+    if (!is_array($dossier_list) || empty($dossier_list)) {
+        return new JsonResponse(['error' => 'Aucun dossier sélectionné'], 400);
+    }
+
+    $em   = $this->getDoctrine()->getManager();
+    $user = $this->getUser();
+
+    $data = [];
+    $first_dossier = null;
+
+    foreach ($dossier_list as $id_dossier) {
+        $dossier = $em->getRepository(FiDossier::class)->find($id_dossier);
+
+        if ($dossier instanceof FiDossier) {
+            if ($first_dossier === null) {
+                $first_dossier = $dossier;
+            }
+            $data[] = $this->getDossierData($dossier, $user);
+        }
+    }
+
+    if ($first_dossier === null) {
+        return new JsonResponse(['error' => 'Aucun dossier valide trouvé'], 400);
+    }
+
+    // Template
+    $template = TemplateManagement::SUIVI_SUPERVISEUR_PATH;
+
+    $this->tbs->LoadTemplate($template, OPENTBS_ALREADY_UTF8);
+
+    $countSheet = $this->tbs->PlugIn(OPENTBS_COUNT_SHEETS);
+    for ($num = 1; $num <= $countSheet; $num++) {
+        $this->tbs->PlugIn(OPENTBS_SELECT_SHEET, $num);
+        $this->tbs->MergeBlock('d', $data);
+    }
+
+    $data_head = [
+        $this->getDossierData($first_dossier, $user),
+    ];
+    $this->tbs->MergeBlock('a', $data_head);
+
+    // Generar XLSX como string
+    $content = $this->tbs->Show(OPENTBS_STRING);
+
+    if (!empty($this->tbs->ErrMsg) || (property_exists($this->tbs, 'ErrCount') && $this->tbs->ErrCount > 0)) {
+        throw new \RuntimeException($this->tbs->ErrMsg ?: 'OpenTBS error');
+    }
+
+    // Nombre archivo
+    $today_str = (new \DateTime())->format('d-m-Y');
+    $file_name = "IG-FI_suivi_superviseur-{$today_str}.xlsx";
+
+    // Response descarga
+    $response = new Response($content);
+    $response->headers->set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    $response->headers->set(
+        'Content-Disposition',
+        $response->headers->makeDisposition(ResponseHeaderBag::DISPOSITION_ATTACHMENT, $file_name)
+    );
+    $response->headers->set('Content-Length', (string) strlen($content));
+    $response->headers->set('Cache-Control', 'private, no-store, no-cache, must-revalidate');
+    $response->headers->set('Pragma', 'no-cache');
+
+    return $response;
+}
+
+
+
+
+
+
 $('#form_print').on('submit', function (e) {
   const $form = $(this);
 
