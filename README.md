@@ -1,4 +1,31 @@
 
+$('#form_print').on('submit', function (e) {
+  const $form = $(this);
+
+  // 🔥 limpia lo que agregaste antes
+  $form.find('input[name="idDossiers[]"]').remove();
+
+  const rows_selected = table.rows({ selected: true }).data();
+
+  if (rows_selected.length < 1) {
+    alert("Sélectionné au moins 1 dossier à imprimer");
+    e.preventDefault();
+    return;
+  }
+
+  for (let i = 0; i < rows_selected.length; i++) {
+    $form.append(
+      $('<input>')
+        .attr('type', 'hidden')
+        .attr('name', 'idDossiers[]')
+        .val(rows_selected[i][0]) // tu ID está en col 0
+    );
+  }
+});
+
+
+
+
 // Selecciona todo SOLO una vez cuando termina el primer draw
 table.one('draw.dt', function () {
   table.column(0).checkboxes.selectAll({ page: 'current' });
