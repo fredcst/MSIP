@@ -1,3 +1,35 @@
+- |
+  set -eu
+
+  until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
+    echo "Waiting for MinIO..."
+    sleep 2
+  done
+
+  mc mb --ignore-existing "local/${MINIO_BUCKET}"
+  mc anonymous set download "local/${MINIO_BUCKET}"
+
+  cat > /tmp/lumen-cors.xml <<EOF
+  <CORSConfiguration>
+    <CORSRule>
+      <AllowedOrigin>*</AllowedOrigin>
+      <AllowedMethod>GET</AllowedMethod>
+      <AllowedMethod>PUT</AllowedMethod>
+      <AllowedMethod>POST</AllowedMethod>
+      <AllowedMethod>HEAD</AllowedMethod>
+      <AllowedHeader>*</AllowedHeader>
+    </CORSRule>
+  </CORSConfiguration>
+EOF
+
+  mc cors set "local/${MINIO_BUCKET}" /tmp/lumen-cors.xml
+
+  mc ilm rule add --expire-days 7 --prefix 'full/' "local/${MINIO_BUCKET}" || true
+
+  echo "MinIO bucket ready."
+
+
+
 cat > /tmp/lumen-cors.xml <<'XML'
 <CORSConfiguration>
   <CORSRule>
