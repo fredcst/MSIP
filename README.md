@@ -1,3 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: compass-back-svc
+  namespace: ns002i016671
+spec:
+  type: ClusterIP
+  selector:
+    app: backend
+    appcode: A104318
+  ports:
+    - name: compass-back-svc
+      protocol: TCP
+      port: 443
+      targetPort: 9443
+
+
+
 version: '3.8'
 
 services:
