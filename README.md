@@ -1,3 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: backend
+spec:
+  ingressClassName: openshift-default
+  rules:
+    - host: TU_HOSTNAME
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: backend-svc
+                port:
+                  number: 443
+
+
+
 apiVersion: v1
 kind: Service
 metadata:
